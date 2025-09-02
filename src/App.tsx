@@ -9,6 +9,11 @@ import Inventory from "./pages/Inventory";
 import POS from "./pages/POS";
 import VinPicker from "./pages/VinPicker";
 import NotFound from "./pages/NotFound";
+import AuthGuard from "./components/auth/AuthGuard";
+import Sales from "./pages/Sales";
+import Customers from "./pages/Customers";
+import Reports from "./pages/Reports";
+import Settings from "./pages/Settings";
 
 const queryClient = new QueryClient();
 
@@ -18,22 +23,23 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Layout>
-          <Routes>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/pos" element={<POS />} />
-            <Route path="/vin-picker" element={<VinPicker />} />
-            {/* Placeholder routes for other pages */}
-            <Route path="/sales" element={<div className="p-8"><h2 className="text-3xl font-bold">Sales Reports</h2><p className="text-muted-foreground">Coming soon...</p></div>} />
-            <Route path="/suppliers" element={<div className="p-8"><h2 className="text-3xl font-bold">Suppliers</h2><p className="text-muted-foreground">Coming soon...</p></div>} />
-            <Route path="/customers" element={<div className="p-8"><h2 className="text-3xl font-bold">Customers</h2><p className="text-muted-foreground">Coming soon...</p></div>} />
-            <Route path="/reports" element={<div className="p-8"><h2 className="text-3xl font-bold">Reports</h2><p className="text-muted-foreground">Coming soon...</p></div>} />
-            <Route path="/settings" element={<div className="p-8"><h2 className="text-3xl font-bold">Settings</h2><p className="text-muted-foreground">Coming soon...</p></div>} />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-        </Layout>
+        <AuthGuard>
+          <Layout>
+            <Routes>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/inventory" element={<Inventory />} />
+              <Route path="/pos" element={<POS />} />
+              <Route path="/vin-picker" element={<VinPicker />} />
+              <Route path="/sales" element={<Sales />} />
+              <Route path="/suppliers" element={<div className="p-8"><h2 className="text-3xl font-bold">Suppliers</h2><p className="text-muted-foreground">Coming soon...</p></div>} />
+              <Route path="/customers" element={<Customers />} />
+              <Route path="/reports" element={<Reports />} />
+              <Route path="/settings" element={<Settings />} />
+              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </Layout>
+        </AuthGuard>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
