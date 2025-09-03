@@ -12,108 +12,55 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Search, Plus, Filter, Package, AlertTriangle, CheckCircle } from "lucide-react";
-
-const inventoryData = [
-  {
-    id: "1",
-    partNumber: "TOF-001",
-    name: "Toyota Oil Filter",
-    category: "Filters",
-    stock: 45,
-    minStock: 10,
-    price: 850,
-    supplier: "Masuma Japan",
-    status: "in-stock"
-  },
-  {
-    id: "2",
-    partNumber: "BPS-205",
-    name: "Brake Pads Set",
-    category: "Brakes",
-    stock: 8,
-    minStock: 15,
-    price: 2400,
-    supplier: "Masuma Japan", 
-    status: "low-stock"
-  },
-  {
-    id: "3",
-    partNumber: "AF-300",
-    name: "Air Filter",
-    category: "Filters",
-    stock: 2,
-    minStock: 20,
-    price: 650,
-    supplier: "Masuma Japan",
-    status: "critical"
-  },
-  {
-    id: "4",
-    partNumber: "SP-400",
-    name: "Spark Plugs (Set of 4)",
-    category: "Engine",
-    stock: 32,
-    minStock: 12,
-    price: 1200,
-    supplier: "Masuma Japan",
-    status: "in-stock"
-  },
-  {
-    id: "5",
-    partNumber: "TO-500",
-    name: "Transmission Oil",
-    category: "Oils",
-    stock: 18,
-    minStock: 8,
-    price: 1800,
-    supplier: "Masuma Japan",
-    status: "in-stock"
-  },
-];
+import { useProducts } from "@/hooks/useProducts";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Inventory() {
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
+  
+  const { products, loading } = useProducts();
+  const { profile } = useAuth();
 
-  const getStatusBadge = (status: string, stock: number) => {
-    switch (status) {
-      case "critical":
-        return (
-          <Badge variant="destructive" className="flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3" />
-            Critical ({stock})
-          </Badge>
-        );
-      case "low-stock":
-        return (
-          <Badge className="bg-warning text-warning-foreground flex items-center gap-1">
-            <AlertTriangle className="w-3 h-3" />
-            Low ({stock})
-          </Badge>
-        );
-      default:
-        return (
-          <Badge className="bg-success text-success-foreground flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" />
-            In Stock ({stock})
-          </Badge>
-        );
+  const getStatusBadge = (stock: number, minStock: number) => {
+    if (stock === 0) {
+      return (
+        <Badge variant="destructive" className="flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3" />
+          Out of Stock
+        </Badge>
+      );
+    } else if (stock <= minStock) {
+      return (
+        <Badge className="bg-warning text-warning-foreground flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3" />
+          Low Stock ({stock})
+        </Badge>
+      );
+    } else {
+      return (
+        <Badge className="bg-success text-success-foreground flex items-center gap-1">
+          <CheckCircle className="w-3 h-3" />
+          In Stock ({stock})
+        </Badge>
+      );
     }
   };
 
-  const filteredInventory = inventoryData.filter((item) => {
+  const filteredInventory = products.filter((product) => {
     const matchesSearch = 
-      item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      item.partNumber.toLowerCase().includes(searchTerm.toLowerCase());
+      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.part_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      product.sku.toLowerCase().includes(searchTerm.toLowerCase());
     
-    const matchesCategory = selectedCategory === "all" || item.category === selectedCategory;
+    const matchesCategory = selectedCategory === "all" || product.category === selectedCategory;
     
     return matchesSearch && matchesCategory;
   });
 
-  const categories = ["all", ...new Set(inventoryData.map(item => item.category))];
-  const totalValue = inventoryData.reduce((sum, item) => sum + (item.stock * item.price), 0);
-  const lowStockItems = inventoryData.filter(item => item.status !== "in-stock").length;
+  const categories = ["all", ...new Set(products.map(product => product.category))];
+  const totalValue = products.reduce((sum, product) => sum + (product.stock_quantity * product.price), 0);
+  const lowStockItems = products.filter(product => product.stock_quantity <= product.min_stock_level).length;
 
   return (
     <div className="flex-1 p-8 pt-6">
@@ -145,7 +92,7 @@ export default function Inventory() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{inventoryData.length}</div>
+            <div className="text-2xl font-bold">{products.length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -155,7 +102,7 @@ export default function Inventory() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {inventoryData.reduce((sum, item) => sum + item.stock, 0)}
+              {products.reduce((sum, product) => sum + product.stock_quantity, 0)}
             </div>
           </CardContent>
         </Card>
@@ -165,7 +112,7 @@ export default function Inventory() {
             <Package className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">KES {totalValue.toLocaleString()}</div>
+            <div className="text-2xl font-bold">{profile?.currency} {totalValue.toLocaleString()}</div>
           </CardContent>
         </Card>
         <Card>
@@ -226,28 +173,42 @@ export default function Inventory() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredInventory.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-mono">{item.partNumber}</TableCell>
-                  <TableCell className="font-medium">{item.name}</TableCell>
-                  <TableCell>{item.category}</TableCell>
-                  <TableCell>
-                    {getStatusBadge(item.status, item.stock)}
-                  </TableCell>
-                  <TableCell>KES {item.price.toLocaleString()}</TableCell>
-                  <TableCell>{item.supplier}</TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Button variant="outline" size="sm">
-                        Edit
-                      </Button>
-                      <Button variant="pos" size="sm">
-                        Add to Sale
-                      </Button>
-                    </div>
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    Loading inventory...
                   </TableCell>
                 </TableRow>
-              ))}
+              ) : filteredInventory.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={7} className="text-center py-8">
+                    No products found
+                  </TableCell>
+                </TableRow>
+              ) : (
+                filteredInventory.map((product) => (
+                  <TableRow key={product.id}>
+                    <TableCell className="font-mono">{product.part_number}</TableCell>
+                    <TableCell className="font-medium">{product.name}</TableCell>
+                    <TableCell>{product.category}</TableCell>
+                    <TableCell>
+                      {getStatusBadge(product.stock_quantity, product.min_stock_level)}
+                    </TableCell>
+                    <TableCell>{profile?.currency} {product.price.toLocaleString()}</TableCell>
+                    <TableCell>Masuma Japan</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <Button variant="outline" size="sm">
+                          Edit
+                        </Button>
+                        <Button variant="pos" size="sm">
+                          Add to Sale
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
             </TableBody>
           </Table>
         </CardContent>

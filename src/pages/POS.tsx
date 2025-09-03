@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ShoppingCart,
   Plus,
@@ -15,6 +16,11 @@ import {
   Search,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useProducts } from "@/hooks/useProducts";
+import { useSales } from "@/hooks/useSales";
+import { useCustomers } from "@/hooks/useCustomers";
+import { useAuth } from "@/hooks/useAuth";
+import { Product } from "@/lib/supabase";
 
 interface CartItem {
   id: string;
@@ -22,35 +28,50 @@ interface CartItem {
   partNumber: string;
   price: number;
   quantity: number;
+  stock: number;
 }
-
-const sampleParts = [
-  { id: "1", name: "Toyota Oil Filter", partNumber: "TOF-001", price: 850 },
-  { id: "2", name: "Brake Pads Set", partNumber: "BPS-205", price: 2400 },
-  { id: "3", name: "Air Filter", partNumber: "AF-300", price: 650 },
-  { id: "4", name: "Spark Plugs (Set of 4)", partNumber: "SP-400", price: 1200 },
-  { id: "5", name: "Transmission Oil", partNumber: "TO-500", price: 1800 },
-];
 
 export default function POS() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
-  const [customerName, setCustomerName] = useState("");
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
+  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'mpesa' | 'card' | 'bank_transfer'>('cash');
 
-  const addToCart = (part: typeof sampleParts[0]) => {
-    const existingItem = cart.find(item => item.id === part.id);
+  const { products, loading: productsLoading } = useProducts();
+  const { createSale } = useSales();
+  const { customers, loading: customersLoading } = useCustomers();
+  const { profile } = useAuth();
+
+  const addToCart = (product: Product) => {
+    const existingItem = cart.find(item => item.id === product.id);
+    
+    if (product.stock_quantity <= 0) {
+      toast.error("Product is out of stock");
+      return;
+    }
     
     if (existingItem) {
+      if (existingItem.quantity >= product.stock_quantity) {
+        toast.error("Cannot add more items than available in stock");
+        return;
+      }
       setCart(cart.map(item => 
-        item.id === part.id 
+        item.id === product.id 
           ? { ...item, quantity: item.quantity + 1 }
           : item
       ));
     } else {
-      setCart([...cart, { ...part, quantity: 1 }]);
+      setCart([...cart, { 
+        id: product.id, 
+        name: product.name, 
+        partNumber: product.part_number, 
+        price: product.price, 
+        quantity: 1,
+        stock: product.stock_quantity
+      }]);
     }
     
-    toast.success(`${part.name} added to cart`);
+    toast.success(`${product.name} added to cart`);
   };
 
   const updateQuantity = (id: string, newQuantity: number) => {
@@ -72,20 +93,38 @@ export default function POS() {
     return cart.reduce((total, item) => total + (item.price * item.quantity), 0);
   };
 
-  const handlePayment = (method: "cash" | "card") => {
+  const handlePayment = async () => {
     if (cart.length === 0) {
       toast.error("Cart is empty");
       return;
     }
 
-    toast.success(`Payment of KES ${getTotalAmount().toLocaleString()} processed via ${method}`);
+    const saleData = {
+      customer_id: selectedCustomerId || undefined,
+      total_amount: getTotalAmount(),
+      currency: profile?.currency || 'KES',
+      payment_method: paymentMethod,
+      items: cart.map(item => ({
+        product_id: item.id,
+        quantity: item.quantity,
+        unit_price: item.price,
+      }))
+    };
+
+    const sale = await createSale(saleData);
     
-    // Print receipt
-    handlePrintReceipt();
-    
-    // Clear cart
-    setCart([]);
-    setCustomerName("");
+    if (sale) {
+      toast.success(`Payment of ${profile?.currency} ${getTotalAmount().toLocaleString()} processed successfully`);
+      
+      // Print receipt
+      handlePrintReceipt();
+      
+      // Clear cart
+      setCart([]);
+      setSelectedCustomerId("");
+    } else {
+      toast.error("Failed to process payment");
+    }
   };
 
   const handlePrintReceipt = () => {
@@ -106,7 +145,10 @@ export default function POS() {
             <h2>MASUMA AUTO PARTS</h2>
             <p>East Africa</p>
             <p>Date: ${new Date().toLocaleString()}</p>
-            ${customerName ? `<p>Customer: ${customerName}</p>` : ''}
+            ${selectedCustomerId ? 
+              `<p>Customer: ${customers.find(c => c.id === selectedCustomerId)?.name || 'Unknown'}</p>` : 
+              '<p>Walk-in Customer</p>'
+            }
           </div>
           
           ${cart.map(item => `
@@ -114,14 +156,14 @@ export default function POS() {
               <span>${item.name} (${item.partNumber})</span>
             </div>
             <div class="item">
-              <span>${item.quantity} x KES ${item.price.toLocaleString()}</span>
-              <span>KES ${(item.price * item.quantity).toLocaleString()}</span>
+              <span>${item.quantity} x ${profile?.currency} ${item.price.toLocaleString()}</span>
+              <span>${profile?.currency} ${(item.price * item.quantity).toLocaleString()}</span>
             </div>
           `).join('')}
           
           <div class="item total">
             <span>TOTAL</span>
-            <span>KES ${getTotalAmount().toLocaleString()}</span>
+            <span>${profile?.currency} ${getTotalAmount().toLocaleString()}</span>
           </div>
           
           <div style="text-align: center; margin-top: 20px;">
@@ -136,9 +178,10 @@ export default function POS() {
     receiptWindow?.print();
   };
 
-  const filteredParts = sampleParts.filter(part =>
-    part.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    part.partNumber.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredProducts = products.filter(product =>
+    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.part_number.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    product.sku.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -168,33 +211,39 @@ export default function POS() {
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {filteredParts.map((part) => (
-                  <div
-                    key={part.id}
-                    className="p-4 border border-border rounded-lg hover:bg-accent/50 transition-smooth"
-                  >
-                    <div className="flex justify-between items-start mb-2">
-                      <div>
-                        <h4 className="font-medium">{part.name}</h4>
-                        <p className="text-sm text-muted-foreground">{part.partNumber}</p>
-                      </div>
-                      <span className="font-bold text-primary">
-                        KES {part.price.toLocaleString()}
-                      </span>
-                    </div>
-                    <Button
-                      variant="pos"
-                      size="sm"
-                      onClick={() => addToCart(part)}
-                      className="w-full"
+              {productsLoading ? (
+                <div className="text-center py-8">Loading products...</div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {filteredProducts.map((product) => (
+                    <div
+                      key={product.id}
+                      className="p-4 border border-border rounded-lg hover:bg-accent/50 transition-smooth"
                     >
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add to Cart
-                    </Button>
-                  </div>
-                ))}
-              </div>
+                      <div className="flex justify-between items-start mb-2">
+                        <div className="flex-1">
+                          <h4 className="font-medium">{product.name}</h4>
+                          <p className="text-sm text-muted-foreground">{product.part_number}</p>
+                          <p className="text-xs text-muted-foreground">Stock: {product.stock_quantity}</p>
+                        </div>
+                        <span className="font-bold text-primary">
+                          {profile?.currency} {product.price.toLocaleString()}
+                        </span>
+                      </div>
+                      <Button
+                        variant="pos"
+                        size="sm"
+                        onClick={() => addToCart(product)}
+                        className="w-full"
+                        disabled={product.stock_quantity <= 0}
+                      >
+                        <Plus className="w-4 h-4 mr-2" />
+                        {product.stock_quantity <= 0 ? 'Out of Stock' : 'Add to Cart'}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -204,17 +253,40 @@ export default function POS() {
           {/* Customer Info */}
           <Card>
             <CardHeader>
-              <CardTitle>Customer Information</CardTitle>
+              <CardTitle>Customer & Payment</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="space-y-2">
-                <Label htmlFor="customerName">Customer Name (Optional)</Label>
-                <Input
-                  id="customerName"
-                  value={customerName}
-                  onChange={(e) => setCustomerName(e.target.value)}
-                  placeholder="Enter customer name..."
-                />
+              <div className="space-y-4">
+                <div>
+                  <Label htmlFor="customer">Customer (Optional)</Label>
+                  <Select value={selectedCustomerId} onValueChange={setSelectedCustomerId}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select customer or leave empty for walk-in" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Walk-in Customer</SelectItem>
+                      {customers.map((customer) => (
+                        <SelectItem key={customer.id} value={customer.id}>
+                          {customer.name} - {customer.phone}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="paymentMethod">Payment Method</Label>
+                  <Select value={paymentMethod} onValueChange={(value: any) => setPaymentMethod(value)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cash">Cash</SelectItem>
+                      <SelectItem value="mpesa">M-Pesa</SelectItem>
+                      <SelectItem value="card">Card</SelectItem>
+                      <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -269,7 +341,7 @@ export default function POS() {
                           </Button>
                         </div>
                         <span className="font-medium text-sm">
-                          KES {(item.price * item.quantity).toLocaleString()}
+                          {profile?.currency} {(item.price * item.quantity).toLocaleString()}
                         </span>
                       </div>
                       
@@ -281,27 +353,18 @@ export default function POS() {
                   
                   <div className="flex justify-between items-center font-bold text-lg">
                     <span>Total:</span>
-                    <span>KES {getTotalAmount().toLocaleString()}</span>
+                    <span>{profile?.currency} {getTotalAmount().toLocaleString()}</span>
                   </div>
                   
-                  <div className="grid grid-cols-2 gap-2 pt-4">
-                    <Button
-                      variant="outline"
-                      onClick={() => handlePayment("cash")}
-                      className="flex items-center"
-                    >
-                      <Banknote className="w-4 h-4 mr-2" />
-                      Cash
-                    </Button>
-                    <Button
-                      variant="masuma"
-                      onClick={() => handlePayment("card")}
-                      className="flex items-center"
-                    >
-                      <CreditCard className="w-4 h-4 mr-2" />
-                      Card
-                    </Button>
-                  </div>
+                  <Button
+                    variant="masuma"
+                    onClick={handlePayment}
+                    className="w-full flex items-center"
+                    size="lg"
+                  >
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    Process Payment ({paymentMethod.toUpperCase()})
+                  </Button>
                   
                   <Button
                     variant="secondary"
